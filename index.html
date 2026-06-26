@@ -2,6 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
+  <!-- Критически важно для мобильных: фиксируем масштаб, запрещаем зум -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Doodle Jump</title>
   <style>
@@ -16,12 +17,17 @@
       align-items: center;
       min-height: 100vh;
       overflow: hidden;
+      touch-action: none; /* Отключаем стандартное поведение браузера при касании */
     }
     canvas {
       display: block;
-      border: 2px solid #444;
-      box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
-      background-color: #000; /* чёрный фон канваса */
+      /* Фиксированные размеры канваса (не проценты!) */
+      width: 400px;
+      height: 600px;
+      background-color: #000;
+      border: 1px solid #333;
+      box-shadow: 0 0 15px rgba(0,0,0,0.8);
+      image-rendering: pixelated; /* Чтобы не мылилось на ретине */
     }
   </style>
 </head>
@@ -33,12 +39,12 @@
     window.addEventListener('DOMContentLoaded', () => {
       const canvas = document.getElementById('game');
       if (!canvas) {
-        console.error('❌ Не найден <canvas id="game">');
+        console.error('❌ Ошибка: не найден <canvas id="game">');
         return;
       }
       const ctx = canvas.getContext('2d');
 
-      // Фиксируем размер сразу, чтобы координаты были предсказуемы
+      // Фиксируем внутренние размеры канваса
       canvas.width = 400;
       canvas.height = 600;
 
@@ -94,20 +100,46 @@
         }
       }
 
+      // --- Управление: клавиатура + тачскрин ---
       const keys = {};
       window.addEventListener('keydown', e => keys[e.code] = true);
       window.addEventListener('keyup', e => keys[e.code] = false);
 
+      let isLeftPressed = false;
+      let isRightPressed = false;
+
+      canvas.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        const touchX = e.touches[0].clientX - rect.left;
+        
+        if (touchX < canvas.width / 2) isLeftPressed = true;
+        else isRightPressed = true;
+      }, { passive: false });
+
+      canvas.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        isLeftPressed = false;
+        isRightPressed = false;
+      }, { passive: false });
+
       function updatePlayer() {
-        if (keys['ArrowLeft'] || keys['KeyA']) player.dx = -player.speed;
-        else if (keys['ArrowRight'] || keys['KeyD']) player.dx = player.speed;
-        else player.dx = 0;
+        // Движение влево/вправо
+        if ((isLeftPressed || keys['ArrowLeft'] || keys['KeyA'])) {
+          player.dx = -player.speed;
+        } else if ((isRightPressed || keys['ArrowRight'] || keys['KeyD'])) {
+          player.dx = player.speed;
+        } else {
+          player.dx = 0;
+        }
 
         player.x += player.dx;
 
+        // Проход сквозь стены
         if (player.x > canvas.width) player.x = -player.w;
         if (player.x + player.w < 0) player.x = canvas.width;
 
+        // Гравитация
         player.dy += player.gravity;
         player.y += player.dy;
 
@@ -121,7 +153,7 @@
             player.dy > 0
           ) {
             player.y = p.y - player.h;
-            player.dy = 0; // важно: останавливаем падение
+            player.dy = 0;
             landed = true;
 
             if (p.isSpring) {
@@ -134,7 +166,7 @@
           }
         }
 
-        // Дополнительный прыжок в воздухе (по желанию)
+        // Прыжок в воздухе (по пробелу или тапу в центр — опционально, здесь только пробел)
         if (!landed && (keys['Space'] || keys['ArrowUp'] || keys['KeyW'])) {
           if (player.dy > 0) {
             player.dy = player.jumpForce;
@@ -142,12 +174,14 @@
           }
         }
 
+        // Счёт
         if (player.y < maxY) {
           const points = Math.floor((maxY - player.y) / 50);
           score += points;
           maxY = player.y;
         }
 
+        // Проигрыш
         if (player.y > canvas.height) {
           gameState = 'gameover';
         }
@@ -157,11 +191,13 @@
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
         if (gameState === 'playing') {
+          // Платформы
           for (const p of platforms) {
             ctx.fillStyle = p.isSpring ? '#9C27B0' : '#4CAF50';
             ctx.fillRect(p.x, p.y, p.w, p.h);
           }
 
+          // Игрок: картинка ИЛИ красный квадрат
           if (playerImg && playerImg.complete && playerImg.naturalHeight !== 0) {
             ctx.drawImage(playerImg, player.x, player.y, player.w, player.h);
           } else {
@@ -169,6 +205,7 @@
             ctx.fillRect(player.x, player.y, player.w, player.h);
           }
 
+          // Частицы
           for (let i = particles.length - 1; i >= 0; i--) {
             const p = particles[i];
             p.x += p.vx;
@@ -181,7 +218,7 @@
           }
           ctx.globalAlpha = 1.0;
 
-          // Счёт: жёстко в левом верхнем углу
+          // Счёт (жёстко в левом верхнем углу)
           ctx.fillStyle = 'white';
           ctx.font = '20px Arial';
           ctx.textAlign = 'left';
@@ -219,6 +256,7 @@
         }
       }
 
+      // Загрузка картинки
       const playerImg = new Image();
       playerImg.src = 'hero.png';
 
@@ -228,11 +266,12 @@
       };
 
       playerImg.onerror = () => {
-        console.warn('Картинка hero.png не найдена. Рисуем красный квадрат вместо героя.');
+        console.warn('⚠️ Картинка hero.png не найдена. Рисуем красный квадрат вместо героя.');
         createPlatforms();
         loop();
       };
 
+      // Клик/тап по кнопке рестарта
       canvas.addEventListener('click', (e) => {
         const rect = canvas.getBoundingClientRect();
         const mouseX = e.clientX - rect.left;
