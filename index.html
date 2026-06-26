@@ -1,17 +1,51 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Doodle Jump</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background: #222;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      overflow: hidden;
+    }
+    canvas {
+      display: block;
+      border: 2px solid #444;
+      box-shadow: 0 0 20px rgba(0,0,0,0.5);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ВАЖНО: этот тег должен быть здесь -->
+  <canvas id="game"></canvas>
+
+  <!-- Вставь сюда исправленный скрипт (см. ниже) -->
+  <script>
+    // ... код скрипта ...
+  </script>
+
+</body>
+</html>
+
 <script>
   window.addEventListener('DOMContentLoaded', () => {
     const canvas = document.getElementById('game');
     if (!canvas) {
-      console.error('Ошибка: не найден <canvas id="game"> в HTML!');
+      console.error('❌ Ошибка: не найден элемент <canvas id="game">');
       return;
     }
     const ctx = canvas.getContext('2d');
 
-    // --- НАСТРОЙКИ ---
     canvas.width = 400;
     canvas.height = 600;
 
-    // --- ПЕРЕМЕННЫЕ ИГРЫ ---
     let player = {
       x: canvas.width / 2 - 20,
       y: canvas.height - 100,
@@ -154,7 +188,6 @@
         ctx.font = '20px Arial';
         ctx.fillText('Счёт: ' + score, 10, 20);
 
-        // Прокрутка мира вверх
         if (player.y < canvas.height / 3) {
           const diff = canvas.height / 3 - player.y;
           player.y += diff;
@@ -162,7 +195,7 @@
           platforms.forEach(p => {
             p.y += diff;
             if (p.y > canvas.height) {
-              p.y = platforms[0].y - platformGap; // ИСПРАВЛЕНО: было platforms.y
+              p.y = platforms[0].y - platformGap; // ИСПРАВЛЕНО
               p.x = Math.random() * (canvas.width - platformWidth);
               p.isSpring = Math.random() < 0.15;
             }
