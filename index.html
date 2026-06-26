@@ -3,51 +3,92 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Doodle Jump - Ironclad</title>
+  <title>Doodle Jump - No Fall</title>
   <style>
-    body { margin: 0; padding: 0; background: #000; overflow: hidden; font-family: Arial, sans-serif; }
-    canvas { display: block; width: 100vw; height: 100vh; }
-    #ui {
-      position: absolute; top: 20px; left: 20px;
-      color: white; font-size: 24px; font-weight: bold;
-      text-shadow: 2px 2px 0 #000; pointer-events: none;
+    body {
+      margin: 0;
+      padding: 0;
+      background: #000;
+      overflow: hidden;
+      font-family: Arial, sans-serif;
     }
-    #restart {
-      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-      color: white; font-size: 40px; font-weight: bold;
-      background: rgba(0,0,0,0.8); padding: 20px 40px;
-      border: 2px solid white; cursor: pointer; display: none;
+    canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+    }
+    #ui-layer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none; /* Пропускает клики сквозь счёт */
+      box-sizing: border-box;
+      padding: 20px;
+    }
+    #score {
+      color: white;
+      font-size: 24px;
+      font-weight: bold;
+      text-shadow: 2px 2px 0 #000;
+    }
+    #restart-btn {
+      position: absolute;
+      bottom: 120px; /* Чуть выше низа, чтобы не перекрывать канвас на мобильных */
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 10; /* Гарантированно поверх всего */
+      
+      padding: 18px 48px;
+      font-size: 22px;
+      background: #ff4757;
+      color: white;
+      border: none;
+      border-radius: 50px;
+      cursor: pointer;
+      box-shadow: 0 6px 15px rgba(255, 71, 87, 0.4);
+      pointer-events: auto; /* Кнопка реально нажимается */
+      display: none; /* Скрыта, пока игра идёт */
+      touch-action: manipulation; /* Чтобы на телефоне срабатывало с первого раза */
+    }
+    #restart-btn:active {
+      transform: translateX(-50%) scale(0.96);
     }
   </style>
 </head>
 <body>
 
-  <div id="ui">Счёт: <span id="score">0</span></div>
-  <button id="restart" onclick="resetGame()">ИГРАТЬ СНОВА</button>
   <canvas id="game"></canvas>
+
+  <!-- Слой интерфейса (счёт) -->
+  <div id="ui-layer">
+    <div id="score">Счёт: 0</div>
+  </div>
+
+  <!-- Кнопка перезапуска -->
+  <button id="restart-btn" onclick="resetGame()">ИГРАТЬ СНОВА</button>
 
   <script>
     const canvas = document.getElementById('game');
     const ctx = canvas.getContext('2d');
     const scoreEl = document.getElementById('score');
-    const restartBtn = document.getElementById('restart');
+    const restartBtn = document.getElementById('restart-btn');
 
-    // Настройка канваса (фиксированный размер для логики, растягивается CSS)
+    // Физические размеры канваса (не CSS!)
     canvas.width = 400;
     canvas.height = 600;
 
-    // --- КОНФИГУРАЦИЯ ---
     const GRAVITY = 0.6;
     const JUMP_STRENGTH = -12;
     const SPEED = 5;
     const PLATFORM_WIDTH = 60;
     const PLATFORM_HEIGHT = 15;
-    const PLATFORM_GAP = 100; // Расстояние между платформами по Y
+    const PLATFORM_GAP = 90; // Чуть меньше, чтобы платформы были чаще
 
-    // --- СОСТОЯНИЕ ---
     let player = {
       x: canvas.width / 2 - 20,
-      y: canvas.height - 100, // Кот ВСЕГДА стоит на этой высоте (пол)
+      y: canvas.height - 100, // Жёстко: ноги кота на высоте 500
       w: 40,
       h: 40,
       dy: 0,
@@ -57,51 +98,46 @@
     let platforms = [];
     let score = 0;
     let gameActive = true;
-    let worldShift = 0; // Сдвиг мира (платформ) вниз
+    let worldShift = 0; // Сдвиг мира вниз
 
     const img = new Image();
     img.src = 'hero.png';
 
-    // --- УПРАВЛЕНИЕ ---
+    // Управление клавиатурой
     const keys = {};
     window.addEventListener('keydown', e => keys[e.code] = true);
     window.addEventListener('keyup', e => keys[e.code] = false);
 
-    // Тач для телефонов
+    // Управление тачем (для телефона)
     let touchX = 0;
-    canvas.addEventListener('touchstart', e => {
-      touchX = e.touches.clientX;
-    }, { passive: false });
-
-    canvas.addEventListener('touchmove', e => {
-      const newX = e.touches.clientX;
+    function startTouch(e) {
+      e.preventDefault();
+      touchX = e.touches[0].clientX;
+    }
+    function moveTouch(e) {
+      e.preventDefault();
+      const newX = e.touches[0].clientX;
       if (newX > touchX) player.dx = SPEED;
       else if (newX < touchX) player.dx = -SPEED;
       touchX = newX;
-    }, { passive: false });
+    }
+    function endTouch() {
+      player.dx = 0;
+    }
 
-    canvas.addEventListener('touchend', () => player.dx = 0);
+    canvas.addEventListener('touchstart', startTouch, { passive: false });
+    canvas.addEventListener('touchmove', moveTouch, { passive: false });
+    canvas.addEventListener('touchend', endTouch, { passive: false });
 
-    // --- ЛОГИКА ---
-
+    // Генерация платформ
     function initPlatforms() {
       platforms = [];
-      // Первая платформа: рисуем её ровно под ногами кота (y = 0 относительно пола)
-      // Но в массиве мы храним её "мировую" координату.
-      // Чтобы кот стоял на ней, платформа должна быть на y = canvas.height - 100 - PLATFORM_HEIGHT
-      // НО! В этой версии мы двигаем мир. Кот стоит на y = canvas.height - 100.
-      // Платформы имеют свои Y. Если платформа на Y=0, а кот на Y=500, они не столкнутся.
-      
-      // ПРАВИЛЬНАЯ ЛОГИКА ДЛЯ ЭТОГО КОДА:
-      // Кот стоит на фиксированной высоте (canvas.height - 100).
-      // Платформы генерируются ВЫШЕ этой линии.
-      
-      let lastY = canvas.height - 100; // Начинаем от уровня ног кота
+      let lastY = canvas.height - 100; // Начинаем ровно от ног кота
 
-      for (let i = 0; i < 15; i++) {
+      for (let i = 0; i < 20; i++) {
         const x = Math.random() * (canvas.width - PLATFORM_WIDTH);
-        // Каждая следующая платформа выше предыдущей на PLATFORM_GAP
-        const y = lastY - PLATFORM_GAP - Math.random() * 50; 
+        // Каждая следующая платформа выше предыдущей
+        const y = lastY - PLATFORM_GAP - Math.random() * 40;
         
         platforms.push({ x, y, w: PLATFORM_WIDTH, h: PLATFORM_HEIGHT });
         lastY = y;
@@ -111,62 +147,50 @@
     function update() {
       if (!gameActive) return;
 
-      // 1. Движение кота (X)
+      // Движение по X
       player.dx = 0;
       if (keys['ArrowLeft'] || keys['KeyA']) player.dx = -SPEED;
       if (keys['ArrowRight'] || keys['KeyD']) player.dx = SPEED;
-      
       player.x += player.dx;
 
       // Проход сквозь стены
       if (player.x > canvas.width) player.x = -player.w;
       if (player.x + player.w < 0) player.x = canvas.width;
 
-      // 2. Гравитация и падение кота
+      // Гравитация
       player.dy += GRAVITY;
       player.y += player.dy;
 
-      // 3. Коллизия с платформами
-      // ВАЖНО: Мы проверяем столкновение между прямоугольником кота и прямоугольником платформы.
-      // Координаты кота: (player.x, player.y)
-      // Координаты платформы: (p.x, p.y)
-      // worldShift не влияет на проверку коллизий, он влияет только на отрисовку!
-      
+      // Коллизии с платформами
       let landed = false;
-      
-      for (let p of platforms) {
-        // Проверка пересечения прямоугольников
+      for (const p of platforms) {
         if (
           player.x < p.x + p.w &&
           player.x + player.w > p.x &&
           player.y + player.h > p.y &&
-          player.y + player.h < p.y + p.h + 10 && // Допуск сверху
-          player.dy > 0 // Падаем ли мы вниз?
+          player.y + player.h < p.y + p.h + 10 &&
+          player.dy > 0 // Падаем вниз
         ) {
-          // Мы приземлились на платформу!
-          player.y = p.y - player.h; // Ставим кота ровно на верх платформы
+          player.y = p.y - player.h;
           player.dy = 0;
           landed = true;
           
           // Прыжок
           player.dy = JUMP_STRENGTH;
-          
-          // Если мы прыгнули выше, чем была самая нижняя платформа, сдвигаем мир вниз
-          // Это создает иллюзию, что мы летим вверх
+
+          // Камера: если поднялись выше центра, сдвигаем мир вниз
           if (player.y < canvas.height / 2) {
             const diff = (canvas.height / 2) - player.y;
-            player.y += diff; // Поднимаем кота визуально
-            worldShift += diff; // Сдвигаем все платформы вниз
-            
-            // Начисляем очки за пройденное расстояние
+            player.y += diff;
+            worldShift += diff;
             score += Math.floor(diff / 10);
-            scoreEl.innerText = score;
+            scoreEl.innerText = 'Счёт: ' + score;
           }
-          break; // Выходим, чтобы не задеть две платформы сразу
+          break;
         }
       }
 
-      // 4. Проверка проигрыша
+      // Проигрыш
       if (player.y > canvas.height) {
         gameActive = false;
         restartBtn.style.display = 'block';
@@ -176,37 +200,28 @@
     function draw() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // Рисуем платформы
-      for (let p of platforms) {
-        // Рисуем платформу со сдвигом мира
+      // Рисуем платформы со сдвигом
+      for (const p of platforms) {
         const drawY = p.y - worldShift;
-        
-        // Рисуем только если платформа видна на экране
         if (drawY < canvas.height && drawY + p.h > 0) {
-          ctx.fillStyle = '#4ECDC4'; // Зеленый цвет
+          ctx.fillStyle = '#4ECDC4';
           ctx.fillRect(p.x, drawY, p.w, p.h);
           ctx.strokeStyle = 'white';
+          ctx.lineWidth = 1;
           ctx.strokeRect(p.x, drawY, p.w, p.h);
         }
       }
 
       // Рисуем кота
-      // Кот рисуется всегда на его реальных координатах (player.y)
-      // Но так как мы сдвигали player.y при скролле, нам нужно компенсировать это?
-      // НЕТ. В нашей логике:
-      // 1. Кот летит вверх (y уменьшается).
-      // 2. Когда y становится маленьким, мы добавляем diff к player.y и к worldShift.
-      // 3. Визуально кот остается на месте (примерно в центре), а мир уезжает вниз.
-      // Значит, рисуем кота просто на player.y.
-      
       if (img.complete && img.naturalHeight !== 0) {
         ctx.drawImage(img, player.x, player.y, player.w, player.h);
       } else {
-        // Заглушка, если картинки нет
+        // Заглушка: оранжевый квадрат
         ctx.fillStyle = '#FFA500';
         ctx.fillRect(player.x, player.y, player.w, player.h);
         ctx.strokeStyle = 'white';
-        ctx.strokeRect(player.x, player.y, player.w, h);
+        ctx.lineWidth = 2;
+        ctx.strokeRect(player.x, player.y, player.w, player.h);
       }
     }
 
@@ -221,26 +236,24 @@
       player.dy = 0;
       worldShift = 0;
       score = 0;
-      scoreEl.innerText = 0;
       gameActive = true;
       restartBtn.style.display = 'none';
-      initPlatforms();
+      scoreEl.innerText = 'Счёт: 0';
+      
+      initPlatforms(); // Пересоздаём платформы ДО нового цикла
       loop();
     }
 
-    // Старт
+    // Гарантированный старт: сначала платформы, потом игра
     img.onload = () => {
       initPlatforms();
       loop();
     };
-    
-    // Если картинки нет, всё равно запускаем (будет оранжевый квадрат)
     img.onerror = () => {
-      console.warn('hero.png не найден, используем заглушку');
+      console.warn('hero.png не найден. Играем за оранжевый квадрат.');
       initPlatforms();
       loop();
     };
-
   </script>
 </body>
 </html>
