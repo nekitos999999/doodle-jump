@@ -2,12 +2,15 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Doodle Jump</title>
   <style>
     body {
       margin: 0;
       padding: 0;
-      background: #222;
+      background-color: #222;
+      color: white;
+      font-family: Arial, sans-serif;
       display: flex;
       justify-content: center;
       align-items: center;
@@ -17,251 +20,277 @@
     canvas {
       display: block;
       border: 2px solid #444;
-      box-shadow: 0 0 20px rgba(0,0,0,0.5);
+      box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+      background-color: #111;
     }
   </style>
 </head>
 <body>
 
-  <!-- ВАЖНО: этот тег должен быть здесь -->
+  <!-- Холст для игры -->
   <canvas id="game"></canvas>
 
-  <!-- Вставь сюда исправленный скрипт (см. ниже) -->
   <script>
-    // ... код скрипта ...
-  </script>
-
-</body>
-</html>
-
-<script>
-  window.addEventListener('DOMContentLoaded', () => {
-    const canvas = document.getElementById('game');
-    if (!canvas) {
-      console.error('❌ Ошибка: не найден элемент <canvas id="game">');
-      return;
-    }
-    const ctx = canvas.getContext('2d');
-
-    canvas.width = 400;
-    canvas.height = 600;
-
-    let player = {
-      x: canvas.width / 2 - 20,
-      y: canvas.height - 100,
-      w: 40,
-      h: 40,
-      dy: 0,
-      dx: 0,
-      speed: 5,
-      jumpForce: -12,
-      gravity: 0.6
-    };
-
-    let platforms = [];
-    const platformWidth = 60;
-    const platformHeight = 15;
-    const platformGap = 100;
-
-    let gameState = 'playing';
-    let score = 0;
-    let maxY = player.y;
-    const particles = [];
-
-    let restartBtn = {
-      x: canvas.width / 2 - 75,
-      y: canvas.height / 2 + 50,
-      w: 150,
-      h: 40,
-      text: 'Играть снова'
-    };
-
-    function createPlatforms() {
-      platforms = [];
-      for (let i = 0; i < 7; i++) {
-        const x = Math.random() * (canvas.width - platformWidth);
-        const y = canvas.height - 150 - i * platformGap;
-        const isSpring = Math.random() < 0.15;
-        platforms.push({ x, y, w: platformWidth, h: platformHeight, isSpring });
+    window.addEventListener('DOMContentLoaded', () => {
+      const canvas = document.getElementById('game');
+      if (!canvas) {
+        console.error('❌ Ошибка: не найден элемент <canvas id="game">');
+        return;
       }
-    }
+      const ctx = canvas.getContext('2d');
 
-    function createParticles(x, y) {
-      for (let i = 0; i < 10; i++) {
-        particles.push({
-          x: x + player.w / 2,
-          y: y + player.h / 2,
-          vx: (Math.random() - 0.5) * 6,
-          vy: (Math.random() - 0.5) * 6,
-          life: 1.0
-        });
+      // Размеры холста
+      canvas.width = 400;
+      canvas.height = 600;
+
+      // Игрок
+      let player = {
+        x: canvas.width / 2 - 20,
+        y: canvas.height - 100,
+        w: 40,
+        h: 40,
+        dy: 0,
+        dx: 0,
+        speed: 5,
+        jumpForce: -12,
+        gravity: 0.6
+      };
+
+      // Платформы
+      let platforms = [];
+      const platformWidth = 60;
+      const platformHeight = 15;
+      const platformGap = 100; // Расстояние между платформами по вертикали
+
+      // Состояние игры
+      let gameState = 'playing'; // 'playing' | 'gameover'
+      let score = 0;
+      let maxY = player.y; // Самая высокая точка, где был игрок
+
+      // Частицы
+      const particles = [];
+
+      // Кнопка «Играть снова»
+      let restartBtn = {
+        x: canvas.width / 2 - 75,
+        y: canvas.height / 2 + 50,
+        w: 150,
+        h: 40,
+        text: 'Играть снова'
+      };
+
+      // Генерация платформ
+      function createPlatforms() {
+        platforms = [];
+        for (let i = 0; i < 7; i++) {
+          const x = Math.random() * (canvas.width - platformWidth);
+          const y = canvas.height - 150 - i * platformGap;
+          const isSpring = Math.random() < 0.15; // 15% шанс пружины
+          platforms.push({ x, y, w: platformWidth, h: platformHeight, isSpring });
+        }
       }
-    }
 
-    const keys = {};
-    window.addEventListener('keydown', e => keys[e.code] = true);
-    window.addEventListener('keyup', e => keys[e.code] = false);
+      // Создание частиц
+      function createParticles(x, y) {
+        for (let i = 0; i < 10; i++) {
+          particles.push({
+            x: x + player.w / 2,
+            y: y + player.h / 2,
+            vx: (Math.random() - 0.5) * 6,
+            vy: (Math.random() - 0.5) * 6,
+            life: 1.0
+          });
+        }
+      }
 
-    function updatePlayer() {
-      if (keys['ArrowLeft'] || keys['KeyA']) player.dx = -player.speed;
-      else if (keys['ArrowRight'] || keys['KeyD']) player.dx = player.speed;
-      else player.dx = 0;
+      // Обработка нажатий клавиш
+      const keys = {};
+      window.addEventListener('keydown', e => keys[e.code] = true);
+      window.addEventListener('keyup', e => keys[e.code] = false);
 
-      player.x += player.dx;
+      // Физика и обновление игрока
+      function updatePlayer() {
+        // Движение влево/вправо
+        if (keys['ArrowLeft'] || keys['KeyA']) player.dx = -player.speed;
+        else if (keys['ArrowRight'] || keys['KeyD']) player.dx = player.speed;
+        else player.dx = 0;
 
-      if (player.x > canvas.width) player.x = -player.w;
-      if (player.x + player.w < 0) player.x = canvas.width;
+        player.x += player.dx;
 
-      player.dy += player.gravity;
-      player.y += player.dy;
+        // Проход сквозь стены (телепортация с одной стороны на другую)
+        if (player.x > canvas.width) player.x = -player.w;
+        if (player.x + player.w < 0) player.x = canvas.width;
 
-      let landed = false;
-      for (const p of platforms) {
-        if (
-          player.x < p.x + p.w &&
-          player.x + player.w > p.x &&
-          player.y + player.h > p.y &&
-          player.y + player.h < p.y + p.h + 10 &&
-          player.dy > 0
-        ) {
-          player.y = p.y - player.h;
-          player.dy = 0;
-          landed = true;
+        // Гравитация и падение
+        player.dy += player.gravity;
+        player.y += player.dy;
 
-          if (p.isSpring) {
-            player.dy = -18;
-            createParticles(player.x, player.y + player.h);
-          } else {
+        // Столкновение с платформами
+        let landed = false;
+        for (const p of platforms) {
+          if (
+            player.x < p.x + p.w &&
+            player.x + player.w > p.x &&
+            player.y + player.h > p.y &&
+            player.y + player.h < p.y + p.h + 10 &&
+            player.dy > 0
+          ) {
+            player.y = p.y - player.h;
+            player.dy = 0;
+            landed = true;
+
+            // Пружина или обычный прыжок
+            if (p.isSpring) {
+              player.dy = -18; // усиленный прыжок
+              createParticles(player.x, player.y + player.h);
+            } else {
+              player.dy = player.jumpForce; // обычный прыжок
+              createParticles(player.x, player.y + player.h);
+            }
+          }
+        }
+
+        // Дополнительный прыжок в воздухе (по желанию)
+        if (!landed && (keys['Space'] || keys['ArrowUp'] || keys['KeyW'])) {
+          if (player.dy > 0) {
             player.dy = player.jumpForce;
             createParticles(player.x, player.y + player.h);
           }
         }
-      }
 
-      if (!landed && (keys['Space'] || keys['ArrowUp'] || keys['KeyW'])) {
-        if (player.dy > 0) {
-          player.dy = player.jumpForce;
-          createParticles(player.x, player.y + player.h);
-        }
-      }
-
-      if (player.y < maxY) {
-        const points = Math.floor((maxY - player.y) / 50);
-        score += points;
-        maxY = player.y;
-      }
-
-      if (player.y > canvas.height) {
-        gameState = 'gameover';
-      }
-    }
-
-    function draw() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      if (gameState === 'playing') {
-        for (const p of platforms) {
-          ctx.fillStyle = p.isSpring ? '#9C27B0' : '#4CAF50';
-          ctx.fillRect(p.x, p.y, p.w, p.h);
-        }
-
-        if (playerImg && playerImg.complete && playerImg.naturalHeight !== 0) {
-          ctx.drawImage(playerImg, player.x, player.y, player.w, player.h);
-        } else {
-          ctx.fillStyle = 'red';
-          ctx.fillRect(player.x, player.y, player.w, player.h);
-        }
-
-        for (let i = particles.length - 1; i >= 0; i--) {
-          const p = particles[i];
-          p.x += p.vx;
-          p.y += p.vy;
-          p.life -= 0.05;
-          ctx.globalAlpha = p.life;
-          ctx.fillStyle = 'white';
-          ctx.fillRect(p.x, p.y, 4, 4);
-          if (p.life <= 0) particles.splice(i, 1);
-        }
-        ctx.globalAlpha = 1.0;
-
-        ctx.fillStyle = 'white';
-        ctx.font = '20px Arial';
-        ctx.fillText('Счёт: ' + score, 10, 20);
-
-        if (player.y < canvas.height / 3) {
-          const diff = canvas.height / 3 - player.y;
-          player.y += diff;
-          maxY += diff;
-          platforms.forEach(p => {
-            p.y += diff;
-            if (p.y > canvas.height) {
-              p.y = platforms[0].y - platformGap; // ИСПРАВЛЕНО
-              p.x = Math.random() * (canvas.width - platformWidth);
-              p.isSpring = Math.random() < 0.15;
-            }
-          });
-        }
-      } else if (gameState === 'gameover') {
-        ctx.fillStyle = 'rgba(0,0,0,0.7)';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        ctx.fillStyle = 'white';
-        ctx.font = '30px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText('Game Over!', canvas.width / 2, canvas.height / 2 - 20);
-        ctx.fillText('Счёт: ' + score, canvas.width / 2, canvas.height / 2 + 20);
-
-        ctx.fillStyle = '#4CAF50';
-        ctx.fillRect(restartBtn.x, restartBtn.y, restartBtn.w, restartBtn.h);
-        ctx.fillStyle = 'white';
-        ctx.font = '18px Arial';
-        ctx.fillText(restartBtn.text, restartBtn.x + 10, restartBtn.y + 25);
-      }
-    }
-
-    const playerImg = new Image();
-    playerImg.src = 'hero.png';
-
-    playerImg.onload = () => {
-      createPlatforms();
-      loop();
-    };
-
-    playerImg.onerror = () => {
-      console.warn('Картинка hero.png не найдена. Рисуем красный квадрат вместо героя.');
-      createPlatforms();
-      loop();
-    };
-
-    canvas.addEventListener('click', (e) => {
-      const rect = canvas.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
-      const mouseY = e.clientY - rect.top;
-
-      if (gameState === 'gameover') {
-        if (
-          mouseX >= restartBtn.x &&
-          mouseX <= restartBtn.x + restartBtn.w &&
-          mouseY >= restartBtn.y &&
-          mouseY <= restartBtn.y + restartBtn.h
-        ) {
-          player.y = canvas.height - 100;
-          player.dy = 0;
+        // Счёт
+        if (player.y < maxY) {
+          const points = Math.floor((maxY - player.y) / 50);
+          score += points;
           maxY = player.y;
-          score = 0;
-          particles.length = 0;
-          createPlatforms();
-          gameState = 'playing';
         }
+
+        // Проигрыш
+        if (player.y > canvas.height) {
+          gameState = 'gameover';
+        }
+      }
+
+      // Отрисовка
+      function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        if (gameState === 'playing') {
+          // Платформы
+          for (const p of platforms) {
+            ctx.fillStyle = p.isSpring ? '#9C27B0' : '#4CAF50'; // фиолетовые — пружины, зелёные — обычные
+            ctx.fillRect(p.x, p.y, p.w, p.h);
+          }
+
+          // Игрок (картинка или квадрат)
+          if (playerImg && playerImg.complete && playerImg.naturalHeight !== 0) {
+            ctx.drawImage(playerImg, player.x, player.y, player.w, player.h);
+          } else {
+            ctx.fillStyle = 'red';
+            ctx.fillRect(player.x, player.y, player.w, player.h);
+          }
+
+          // Частицы
+          for (let i = particles.length - 1; i >= 0; i--) {
+            const p = particles[i];
+            p.x += p.vx;
+            p.y += p.vy;
+            p.life -= 0.05;
+            ctx.globalAlpha = p.life;
+            ctx.fillStyle = 'white';
+            ctx.fillRect(p.x, p.y, 4, 4);
+            if (p.life <= 0) particles.splice(i, 1);
+          }
+          ctx.globalAlpha = 1.0;
+
+          // Счёт
+          ctx.fillStyle = 'white';
+          ctx.font = '20px Arial';
+          ctx.fillText('Счёт: ' + score, 10, 20);
+
+          // Прокрутка мира вверх, когда игрок поднимается высоко
+          if (player.y < canvas.height / 3) {
+            const diff = canvas.height / 3 - player.y;
+            player.y += diff;
+            maxY += diff;
+            platforms.forEach(p => {
+              p.y += diff;
+              if (p.y > canvas.height) {
+                p.y = platforms[0].y - platformGap; // исправлено: было platforms.y
+                p.x = Math.random() * (canvas.width - platformWidth);
+                p.isSpring = Math.random() < 0.15;
+              }
+            });
+          }
+        } else if (gameState === 'gameover') {
+          // Экран проигрыша
+          ctx.fillStyle = 'rgba(0,0,0,0.7)';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+          ctx.fillStyle = 'white';
+          ctx.font = '30px Arial';
+          ctx.textAlign = 'center';
+          ctx.fillText('Game Over!', canvas.width / 2, canvas.height / 2 - 20);
+          ctx.fillText('Счёт: ' + score, canvas.width / 2, canvas.height / 2 + 20);
+
+          // Кнопка
+          ctx.fillStyle = '#4CAF50';
+          ctx.fillRect(restartBtn.x, restartBtn.y, restartBtn.w, restartBtn.h);
+          ctx.fillStyle = 'white';
+          ctx.font = '18px Arial';
+          ctx.fillText(restartBtn.text, restartBtn.x + 10, restartBtn.y + 25);
+        }
+      }
+
+      // Загрузка картинки игрока
+      const playerImg = new Image();
+      playerImg.src = 'hero.png';
+
+      playerImg.onload = () => {
+        createPlatforms();
+        loop();
+      };
+
+      playerImg.onerror = () => {
+        console.warn('Картинка hero.png не найдена. Рисуем красный квадрат вместо героя.');
+        createPlatforms();
+        loop();
+      };
+
+      // Клик по кнопке «Играть снова»
+      canvas.addEventListener('click', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        if (gameState === 'gameover') {
+          if (
+            mouseX >= restartBtn.x &&
+            mouseX <= restartBtn.x + restartBtn.w &&
+            mouseY >= restartBtn.y &&
+            mouseY <= restartBtn.y + restartBtn.h
+          ) {
+            // Сброс игры
+            player.y = canvas.height - 100;
+            player.dy = 0;
+            maxY = player.y;
+            score = 0;
+            particles.length = 0;
+            createPlatforms();
+            gameState = 'playing';
+          }
+        }
+      });
+
+      // Игровой цикл
+      function loop() {
+        if (gameState === 'playing') {
+          updatePlayer();
+        }
+        draw();
+        requestAnimationFrame(loop);
       }
     });
-
-    function loop() {
-      if (gameState === 'playing') {
-        updatePlayer();
-      }
-      draw();
-      requestAnimationFrame(loop);
-    }
-  });
-</script>
+  </script>
+</body>
+</html>
