@@ -1,269 +1,248 @@
-<!DOCTYPE html>
-<html lang="ru">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-    <title>Doodle Jump</title>
+<script>
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
 
-    <!-- PWA: чтобы iPhone мог добавить на экран «Домой» -->
-    <link rel="manifest" href="manifest.json">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="Doodle Jump">
-    <meta name="theme-color" content="#87CEEB">
+  // --- НАСТРОЙКИ ---
+  canvas.width = 400;
+  canvas.height = 600;
 
-    <style>
-      body { margin: 0; overflow: hidden; background: #87CEEB; font-family: Arial, sans-serif; touch-action: none; }
-      canvas { display: block; width: 100vw; height: 100vh; }
+  // --- ПЕРЕМЕННЫЕ ИГРЫ ---
+  let player = {
+    x: canvas.width / 2 - 20,
+    y: canvas.height - 100,
+    w: 40,
+    h: 40,
+    dy: 0,
+    dx: 0,
+    speed: 5,
+    jumpForce: -12,
+    gravity: 0.6
+  };
 
-      /* UI счётчика */
-      #ui { 
-        position: absolute; top: 20px; left: 20px; 
-        color: white; font-size: 24px; font-weight: bold; 
-        text-shadow: 2px 2px 0 #000; pointer-events: none; z-index: 10; 
-      }
-      
-      /* Кнопки управления на сенсорном экране */
-      .controls {
-        position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%);
-        display: flex; gap: 30px; z-index: 20;
-      }
-      .btn {
-        width: 80px; height: 80px; border-radius: 50%;
-        background: rgba(255,255,255,0.4); backdrop-filter: blur(5px);
-        border: 1px solid rgba(255,255,255,0.6);
-        color: white; font-size: 32px; font-weight: bold;
-        display: flex; align-items: center; justify-content: center;
-        user-select: none; -webkit-tap-highlight-color: transparent;
-        touch-action: manipulation;
-      }
-      .btn:active { background: rgba(255,255,255,0.8); }
+  let platforms = [];
+  const platformWidth = 60;
+  const platformHeight = 15;
+  const platformGap = 100; // расстояние между платформами по вертикали
 
-      #game-over { 
-        position: absolute; top: 50%; left: 50%; 
-        transform: translate(-50%, -50%);
-        color: white; text-align: center; 
-        background: rgba(0, 0, 0, 0.85); padding: 40px; border-radius: 15px;
-        display: none; z-index: 30;
-      }
+  // Игровые состояния
+  let gameState = 'playing'; // 'playing' | 'gameover'
+  let score = 0;
+  let maxY = player.y; // самая высокая точка, где был игрок
 
-      button {
-        margin-top: 15px; padding: 10px 30px; font-size: 18px; cursor: pointer;
-        background: white; border: none; border-radius: 5px; color: #333;
-      }
-      button:hover { background: #ddd; }
-    </style>
-  </head>
-  <body>
+  // Частицы
+  const particles = [];
 
-    <div id="ui">Счёт: <span id="score">0</span></div>
-    <canvas id="game"></canvas>
+  // Кнопка
+  let restartBtn = {
+    x: canvas.width / 2 - 75,
+    y: canvas.height / 2 + 50,
+    w: 150,
+    h: 40,
+    text: 'Играть снова'
+  };
 
-    <div class="controls">
-      <div class="btn" id="btn-left">←</div>
-      <div class="btn" id="btn-right">→</div>
-    </div>
+  // --- ГЕНЕРАЦИЯ ПЛАТФОРМ ---
+  function createPlatforms() {
+    platforms = [];
+    for (let i = 0; i < 7; i++) {
+      const x = Math.random() * (canvas.width - platformWidth);
+      const y = canvas.height - 150 - i * platformGap;
+      const isSpring = Math.random() < 0.15; // 15% шанс пружины
+      platforms.push({ x, y, w: platformWidth, h: platformHeight, isSpring });
+    }
+  }
 
-    <div id="game-over">
-      <h1>Игра окончена!</h1>
-      <p>Твой счёт: <span id="final-score">0</span></p>
-      <button onclick="location.reload()">Играть снова</button>
-    </div>
+  // --- ЧАСТИЦЫ ---
+  function createParticles(x, y) {
+    for (let i = 0; i < 10; i++) {
+      particles.push({
+        x: x + player.w / 2,
+        y: y + player.h / 2,
+        vx: (Math.random() - 0.5) * 6,
+        vy: (Math.random() - 0.5) * 6,
+        life: 1.0
+      });
+    }
+  }
 
-    <script>
-      const canvas = document.getElementById('game');
-      const ctx = canvas.getContext('2d');
+  // --- ОБРАБОТКА ВВОДА ---
+  const keys = {};
+  window.addEventListener('keydown', e => keys[e.code] = true);
+  window.addEventListener('keyup', e => keys[e.code] = false);
 
-      // Адаптация под размер экрана
-      function resize() {
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
-      }
-      window.addEventListener('resize', resize);
-      resize(); // первый раз сразу
+  // --- СТОЛКНОВЕНИЯ И ФИЗИКА ---
+  function updatePlayer() {
+    // Движение влево/вправо
+    if (keys['ArrowLeft'] || keys['KeyA']) player.dx = -player.speed;
+    else if (keys['ArrowRight'] || keys['KeyD']) player.dx = player.speed;
+    else player.dx = 0;
 
-      // --- НАСТРОЙКИ ФИЗИКИ ---
-      const GRAVITY = 0.65;
-      const JUMP_FORCE = -12.5;
-      const SPEED = 4;
-      
-      const HITBOX_MARGIN_X = 10;
-      const HITBOX_TOP_FRACTION = 0.35;
+    player.x += player.dx;
 
-      let score = 0;
-      let gameActive = true;
+    // Проход сквозь стены (телепортация с одной стороны на другую)
+    if (player.x > canvas.width) player.x = -player.w;
+    if (player.x + player.w < 0) player.x = canvas.width;
 
-      const player = { x: canvas.width / 2 - 20, y: 510, w: 40, h: 40, vx: 0, vy: 0 };
-      const platforms = [];
-      
-      const playerImg = new Image();
-      playerImg.src = 'hero.png'; // если файла нет — игра всё равно будет работать (красный квадрат)
+    // Гравитация и падение
+    player.dy += player.gravity;
+    player.y += player.dy;
 
-      function createPlatform(x, y) {
-        return { x, y, w: 70, h: 14, scored: false };
-      }
+    // Столкновение с платформами
+    let landed = false;
+    for (const p of platforms) {
+      if (
+        player.x < p.x + p.w &&
+        player.x + player.w > p.x &&
+        player.y + player.h > p.y &&
+        player.y + player.h < p.y + p.h + 10 &&
+        player.dy > 0
+      ) {
+        player.y = p.y - player.h;
+        player.dy = 0;
+        landed = true;
 
-      function getMaxJumpDistance() {
-        const timeUp = Math.abs(JUMP_FORCE) / GRAVITY;
-        const maxHorizontal = Math.abs(SPEED) * timeUp * 2;
-        return maxHorizontal;
-      }
-
-      function reset() {
-        score = 0;
-        gameActive = true;
-        
-        player.x = canvas.width / 2 - 20;
-        player.y = 510;
-        player.vx = 0;
-        player.vy = 0;
-
-        platforms.length = 0;
-        document.getElementById('score').innerText = score;
-        document.getElementById('game-over').style.display = 'none';
-
-        const startY = 550;
-        platforms.push(createPlatform(canvas.width / 2 - 35, startY));
-
-        const maxJumpDist = getMaxJumpDistance();
-        const PLATFORM_GAP = 80;
-
-        for (let i = 1; i < 10; i++) {
-          const prev = platforms[i - 1];
-          const y = prev.y - PLATFORM_GAP;
-
-          const minX = prev.x - maxJumpDist;
-          const maxX = prev.x + maxJumpDist;
-
-          const safeMinX = Math.max(0, minX);
-          const safeMaxX = Math.min(canvas.width - 70, maxX);
-
-          const x = Math.random() * (safeMaxX - safeMinX) + safeMinX;
-          platforms.push(createPlatform(x, y));
-        }
-      }
-
-      function update() {
-        if (!gameActive) return;
-
-        player.vy += GRAVITY;
-        player.x += player.vx;
-        player.y += player.vy;
-
-        // Проход сквозь стены по горизонтали
-        if (player.x > canvas.width) player.x = -player.w;
-        if (player.x < -player.w) player.x = canvas.width;
-
-        let landed = false;
-
-        for (const p of platforms) {
-          const hitX = p.x + HITBOX_MARGIN_X;
-          const hitW = p.w - HITBOX_MARGIN_X * 2;
-          const hitY = p.y;
-          const hitH = p.h * HITBOX_TOP_FRACTION;
-
-          if (
-            player.x < hitX + hitW &&
-            player.x + player.w > hitX &&
-            player.y + player.h > hitY &&
-            player.y < hitY + hitH
-          ) {
-            if (player.vy > 0) {
-              landed = true;
-              player.vy = JUMP_FORCE;
-              player.y = p.y - player.h;
-
-              if (!p.scored) {
-                score++;
-                p.scored = true;
-                document.getElementById('score').innerText = score;
-              }
-              break;
-            }
-          }
-        }
-
-        // Камера
-        const cameraThreshold = canvas.height * 0.5; 
-        if (player.y < cameraThreshold) {
-          const diff = cameraThreshold - player.y;
-          player.y = cameraThreshold;
-          
-          platforms.forEach(p => {
-            p.y += diff;
-          });
-
-          const minY = canvas.height + 20;
-          for (let i = platforms.length - 1; i >= 0; i--) {
-            if (platforms[i].y > minY) {
-              platforms.splice(i, 1);
-              
-              const last = platforms[platforms.length - 1];
-              const maxJumpDist = getMaxJumpDistance();
-              const PLATFORM_GAP = 80;
-              const y = last.y - PLATFORM_GAP;
-
-              const minX = last.x - maxJumpDist;
-              const maxX = last.x + maxJumpDist;
-              const safeMinX = Math.max(0, minX);
-              const safeMaxX = Math.min(canvas.width - 70, maxX);
-
-              const x = Math.random() * (safeMaxX - safeMinX) + safeMinX;
-              platforms.push(createPlatform(x, y));
-            }
-          }
-        }
-
-        if (player.y > canvas.height) {
-          gameActive = false;
-          document.getElementById('final-score').innerText = score;
-          document.getElementById('game-over').style.display = 'block';
-        }
-      }
-
-      function draw() {
-        ctx.fillStyle = '#87CEEB';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        ctx.fillStyle = '#5F9EA0';
-        ctx.strokeStyle = '#333';
-        ctx.lineWidth = 2;
-
-        for (const p of platforms) {
-          ctx.fillRect(p.x, p.y, p.w, p.h);
-          ctx.strokeRect(p.x, p.y, p.w, p.h);
-        }
-
-        if (playerImg.complete) {
-          ctx.drawImage(playerImg, player.x, player.y, player.w, player.h);
+        // Пружина
+        if (p.isSpring) {
+          player.dy = -18; // усиленный прыжок
+          createParticles(player.x, player.y + player.h);
         } else {
-          ctx.fillStyle = 'red';
-          ctx.fillRect(player.x, player.y, player.w, player.h);
+          player.dy = player.jumpForce; // обычный прыжок
+          createParticles(player.x, player.y + player.h);
         }
       }
+    }
 
-      function loop() {
-        update();
-        draw();
-        requestAnimationFrame(loop);
+    // Если не приземлился — обычный прыжок при нажатии
+    if (!landed && (keys['Space'] || keys['ArrowUp'] || keys['KeyW'])) {
+      // Можно убрать эту часть, если хочешь прыгать только от платформ
+      // Но для удобства оставим: если в воздухе и нажал пробел — небольшой буст
+      if (player.dy > 0) {
+        player.dy = player.jumpForce;
+        createParticles(player.x, player.y + player.h);
+      }
+    }
+
+    // Счёт
+    if (player.y < maxY) {
+      const points = Math.floor((maxY - player.y) / 50);
+      score += points;
+      maxY = player.y;
+    }
+
+    // Проигрыш
+    if (player.y > canvas.height) {
+      gameState = 'gameover';
+    }
+  }
+
+  // --- ОТРИСОВКА ---
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (gameState === 'playing') {
+      // Платформы
+      for (const p of platforms) {
+        ctx.fillStyle = p.isSpring ? '#9C27B0' : '#4CAF50'; // фиолетовые — пружины
+        ctx.fillRect(p.x, p.y, p.w, p.h);
       }
 
-      // Сенсорное управление
-      const btnLeft = document.getElementById('btn-left');
-      const btnRight = document.getElementById('btn-right');
+      // Игрок (картинка или квадрат)
+      if (playerImg) {
+        ctx.drawImage(playerImg, player.x, player.y, player.w, player.h);
+      } else {
+        ctx.fillStyle = 'red';
+        ctx.fillRect(player.x, player.y, player.w, player.h);
+      }
 
-      btnLeft.addEventListener('touchstart', (e) => { e.preventDefault(); player.vx = -SPEED; }, {passive: false});
-      btnLeft.addEventListener('touchend', () => player.vx = 0);
-      btnLeft.addEventListener('mousedown', () => player.vx = -SPEED);
-      btnLeft.addEventListener('mouseup', () => player.vx = 0);
+      // Частицы
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life -= 0.05;
+        ctx.globalAlpha = p.life;
+        ctx.fillStyle = 'white';
+        ctx.fillRect(p.x, p.y, 4, 4);
+        if (p.life <= 0) particles.splice(i, 1);
+      }
+      ctx.globalAlpha = 1.0;
 
-      btnRight.addEventListener('touchstart', (e) => { e.preventDefault(); player.vx = SPEED; }, {passive: false});
-      btnRight.addEventListener('touchend', () => player.vx = 0);
-      btnRight.addEventListener('mousedown', () => player.vx = SPEED);
-      btnRight.addEventListener('mouseup', () => player.vx = 0);
+      // Счёт
+      ctx.fillStyle = 'white';
+      ctx.font = '20px Arial';
+      ctx.fillText('Счёт: ' + score, 10, 20);
 
-      reset();
-      loop();
-    </script>
-  </body>
-</html>
+      // Двигаем платформы вниз, когда игрок поднимается высоко
+      if (player.y < canvas.height / 3) {
+        const diff = canvas.height / 3 - player.y;
+        player.y += diff;
+        maxY += diff;
+        platforms.forEach(p => {
+          p.y += diff;
+          if (p.y > canvas.height) {
+            p.y = platforms.y - platformGap;
+            p.x = Math.random() * (canvas.width - platformWidth);
+            p.isSpring = Math.random() < 0.15;
+          }
+        });
+      }
+    } else if (gameState === 'gameover') {
+      // Экран проигрыша
+      ctx.fillStyle = 'rgba(0,0,0,0.7)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = 'white';
+      ctx.font = '30px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText('Game Over!', canvas.width / 2, canvas.height / 2 - 20);
+      ctx.fillText('Счёт: ' + score, canvas.width / 2, canvas.height / 2 + 20);
+
+      // Кнопка
+      ctx.fillStyle = '#4CAF50';
+      ctx.fillRect(restartBtn.x, restartBtn.y, restartBtn.w, restartBtn.h);
+      ctx.fillStyle = 'white';
+      ctx.font = '18px Arial';
+      ctx.fillText(restartBtn.text, restartBtn.x + 10, restartBtn.y + 25);
+    }
+  }
+
+  // --- ЗАГРУЗКА КАРТИНКИ ИГРОКА ---
+  const playerImg = new Image();
+  playerImg.src = 'hero.png';
+
+  // --- КЛИКИ МЫШИ (ДЛЯ КНОПКИ) ---
+  canvas.addEventListener('click', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    if (gameState === 'gameover') {
+      if (
+        mouseX >= restartBtn.x &&
+        mouseX <= restartBtn.x + restartBtn.w &&
+        mouseY >= restartBtn.y &&
+        mouseY <= restartBtn.y + restartBtn.h
+      ) {
+        // Сброс игры
+        player.y = canvas.height - 100;
+        player.dy = 0;
+        maxY = player.y;
+        score = 0;
+        createPlatforms();
+        gameState = 'playing';
+      }
+    }
+  });
+
+  // --- ИГРОВОЙ ЦИКЛ ---
+  function loop() {
+    if (gameState === 'playing') {
+      updatePlayer();
+    }
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  createPlatforms();
+  loop();
+</script>
