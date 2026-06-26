@@ -2,310 +2,245 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <!-- Критически важно для мобильных: фиксируем масштаб, запрещаем зум -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Doodle Jump</title>
+  <title>Doodle Jump - Ironclad</title>
   <style>
-    body {
-      margin: 0;
-      padding: 0;
-      background-color: #222;
-      color: white;
-      font-family: Arial, sans-serif;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      min-height: 100vh;
-      overflow: hidden;
-      touch-action: none; /* Отключаем стандартное поведение браузера при касании */
+    body { margin: 0; padding: 0; background: #000; overflow: hidden; font-family: Arial, sans-serif; }
+    canvas { display: block; width: 100vw; height: 100vh; }
+    #ui {
+      position: absolute; top: 20px; left: 20px;
+      color: white; font-size: 24px; font-weight: bold;
+      text-shadow: 2px 2px 0 #000; pointer-events: none;
     }
-    canvas {
-      display: block;
-      /* Фиксированные размеры канваса (не проценты!) */
-      width: 400px;
-      height: 600px;
-      background-color: #000;
-      border: 1px solid #333;
-      box-shadow: 0 0 15px rgba(0,0,0,0.8);
-      image-rendering: pixelated; /* Чтобы не мылилось на ретине */
+    #restart {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      color: white; font-size: 40px; font-weight: bold;
+      background: rgba(0,0,0,0.8); padding: 20px 40px;
+      border: 2px solid white; cursor: pointer; display: none;
     }
   </style>
 </head>
 <body>
 
+  <div id="ui">Счёт: <span id="score">0</span></div>
+  <button id="restart" onclick="resetGame()">ИГРАТЬ СНОВА</button>
   <canvas id="game"></canvas>
 
   <script>
-    window.addEventListener('DOMContentLoaded', () => {
-      const canvas = document.getElementById('game');
-      if (!canvas) {
-        console.error('❌ Ошибка: не найден <canvas id="game">');
-        return;
-      }
-      const ctx = canvas.getContext('2d');
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const restartBtn = document.getElementById('restart');
 
-      // Фиксируем внутренние размеры канваса
-      canvas.width = 400;
-      canvas.height = 600;
+    // Настройка канваса (фиксированный размер для логики, растягивается CSS)
+    canvas.width = 400;
+    canvas.height = 600;
 
-      let player = {
-        x: canvas.width / 2 - 20,
-        y: canvas.height - 100,
-        w: 40,
-        h: 40,
-        dy: 0,
-        dx: 0,
-        speed: 5,
-        jumpForce: -12,
-        gravity: 0.6
-      };
+    // --- КОНФИГУРАЦИЯ ---
+    const GRAVITY = 0.6;
+    const JUMP_STRENGTH = -12;
+    const SPEED = 5;
+    const PLATFORM_WIDTH = 60;
+    const PLATFORM_HEIGHT = 15;
+    const PLATFORM_GAP = 100; // Расстояние между платформами по Y
 
-      let platforms = [];
-      const platformWidth = 60;
-      const platformHeight = 15;
-      const platformGap = 100;
+    // --- СОСТОЯНИЕ ---
+    let player = {
+      x: canvas.width / 2 - 20,
+      y: canvas.height - 100, // Кот ВСЕГДА стоит на этой высоте (пол)
+      w: 40,
+      h: 40,
+      dy: 0,
+      dx: 0
+    };
 
-      let gameState = 'playing';
-      let score = 0;
-      let maxY = player.y;
-      const particles = [];
+    let platforms = [];
+    let score = 0;
+    let gameActive = true;
+    let worldShift = 0; // Сдвиг мира (платформ) вниз
 
-      let restartBtn = {
-        x: canvas.width / 2 - 75,
-        y: canvas.height / 2 + 50,
-        w: 150,
-        h: 40,
-        text: 'Играть снова'
-      };
+    const img = new Image();
+    img.src = 'hero.png';
 
-      function createPlatforms() {
-        platforms = [];
-        for (let i = 0; i < 7; i++) {
-          const x = Math.random() * (canvas.width - platformWidth);
-          const y = canvas.height - 150 - i * platformGap;
-          const isSpring = Math.random() < 0.15;
-          platforms.push({ x, y, w: platformWidth, h: platformHeight, isSpring });
-        }
-      }
+    // --- УПРАВЛЕНИЕ ---
+    const keys = {};
+    window.addEventListener('keydown', e => keys[e.code] = true);
+    window.addEventListener('keyup', e => keys[e.code] = false);
 
-      function createParticles(x, y) {
-        for (let i = 0; i < 10; i++) {
-          particles.push({
-            x: x + player.w / 2,
-            y: y + player.h / 2,
-            vx: (Math.random() - 0.5) * 6,
-            vy: (Math.random() - 0.5) * 6,
-            life: 1.0
-          });
-        }
-      }
+    // Тач для телефонов
+    let touchX = 0;
+    canvas.addEventListener('touchstart', e => {
+      touchX = e.touches.clientX;
+    }, { passive: false });
 
-      // --- Управление: клавиатура + тачскрин ---
-      const keys = {};
-      window.addEventListener('keydown', e => keys[e.code] = true);
-      window.addEventListener('keyup', e => keys[e.code] = false);
+    canvas.addEventListener('touchmove', e => {
+      const newX = e.touches.clientX;
+      if (newX > touchX) player.dx = SPEED;
+      else if (newX < touchX) player.dx = -SPEED;
+      touchX = newX;
+    }, { passive: false });
 
-      let isLeftPressed = false;
-      let isRightPressed = false;
+    canvas.addEventListener('touchend', () => player.dx = 0);
 
-      canvas.addEventListener('touchstart', (e) => {
-        e.preventDefault();
-        const rect = canvas.getBoundingClientRect();
-        const touchX = e.touches[0].clientX - rect.left;
+    // --- ЛОГИКА ---
+
+    function initPlatforms() {
+      platforms = [];
+      // Первая платформа: рисуем её ровно под ногами кота (y = 0 относительно пола)
+      // Но в массиве мы храним её "мировую" координату.
+      // Чтобы кот стоял на ней, платформа должна быть на y = canvas.height - 100 - PLATFORM_HEIGHT
+      // НО! В этой версии мы двигаем мир. Кот стоит на y = canvas.height - 100.
+      // Платформы имеют свои Y. Если платформа на Y=0, а кот на Y=500, они не столкнутся.
+      
+      // ПРАВИЛЬНАЯ ЛОГИКА ДЛЯ ЭТОГО КОДА:
+      // Кот стоит на фиксированной высоте (canvas.height - 100).
+      // Платформы генерируются ВЫШЕ этой линии.
+      
+      let lastY = canvas.height - 100; // Начинаем от уровня ног кота
+
+      for (let i = 0; i < 15; i++) {
+        const x = Math.random() * (canvas.width - PLATFORM_WIDTH);
+        // Каждая следующая платформа выше предыдущей на PLATFORM_GAP
+        const y = lastY - PLATFORM_GAP - Math.random() * 50; 
         
-        if (touchX < canvas.width / 2) isLeftPressed = true;
-        else isRightPressed = true;
-      }, { passive: false });
+        platforms.push({ x, y, w: PLATFORM_WIDTH, h: PLATFORM_HEIGHT });
+        lastY = y;
+      }
+    }
 
-      canvas.addEventListener('touchend', (e) => {
-        e.preventDefault();
-        isLeftPressed = false;
-        isRightPressed = false;
-      }, { passive: false });
+    function update() {
+      if (!gameActive) return;
 
-      function updatePlayer() {
-        // Движение влево/вправо
-        if ((isLeftPressed || keys['ArrowLeft'] || keys['KeyA'])) {
-          player.dx = -player.speed;
-        } else if ((isRightPressed || keys['ArrowRight'] || keys['KeyD'])) {
-          player.dx = player.speed;
-        } else {
-          player.dx = 0;
-        }
+      // 1. Движение кота (X)
+      player.dx = 0;
+      if (keys['ArrowLeft'] || keys['KeyA']) player.dx = -SPEED;
+      if (keys['ArrowRight'] || keys['KeyD']) player.dx = SPEED;
+      
+      player.x += player.dx;
 
-        player.x += player.dx;
+      // Проход сквозь стены
+      if (player.x > canvas.width) player.x = -player.w;
+      if (player.x + player.w < 0) player.x = canvas.width;
 
-        // Проход сквозь стены
-        if (player.x > canvas.width) player.x = -player.w;
-        if (player.x + player.w < 0) player.x = canvas.width;
+      // 2. Гравитация и падение кота
+      player.dy += GRAVITY;
+      player.y += player.dy;
 
-        // Гравитация
-        player.dy += player.gravity;
-        player.y += player.dy;
-
-        let landed = false;
-        for (const p of platforms) {
-          if (
-            player.x < p.x + p.w &&
-            player.x + player.w > p.x &&
-            player.y + player.h > p.y &&
-            player.y + player.h < p.y + p.h + 10 &&
-            player.dy > 0
-          ) {
-            player.y = p.y - player.h;
-            player.dy = 0;
-            landed = true;
-
-            if (p.isSpring) {
-              player.dy = -18;
-              createParticles(player.x, player.y + player.h);
-            } else {
-              player.dy = player.jumpForce;
-              createParticles(player.x, player.y + player.h);
-            }
+      // 3. Коллизия с платформами
+      // ВАЖНО: Мы проверяем столкновение между прямоугольником кота и прямоугольником платформы.
+      // Координаты кота: (player.x, player.y)
+      // Координаты платформы: (p.x, p.y)
+      // worldShift не влияет на проверку коллизий, он влияет только на отрисовку!
+      
+      let landed = false;
+      
+      for (let p of platforms) {
+        // Проверка пересечения прямоугольников
+        if (
+          player.x < p.x + p.w &&
+          player.x + player.w > p.x &&
+          player.y + player.h > p.y &&
+          player.y + player.h < p.y + p.h + 10 && // Допуск сверху
+          player.dy > 0 // Падаем ли мы вниз?
+        ) {
+          // Мы приземлились на платформу!
+          player.y = p.y - player.h; // Ставим кота ровно на верх платформы
+          player.dy = 0;
+          landed = true;
+          
+          // Прыжок
+          player.dy = JUMP_STRENGTH;
+          
+          // Если мы прыгнули выше, чем была самая нижняя платформа, сдвигаем мир вниз
+          // Это создает иллюзию, что мы летим вверх
+          if (player.y < canvas.height / 2) {
+            const diff = (canvas.height / 2) - player.y;
+            player.y += diff; // Поднимаем кота визуально
+            worldShift += diff; // Сдвигаем все платформы вниз
+            
+            // Начисляем очки за пройденное расстояние
+            score += Math.floor(diff / 10);
+            scoreEl.innerText = score;
           }
-        }
-
-        // Прыжок в воздухе (по пробелу или тапу в центр — опционально, здесь только пробел)
-        if (!landed && (keys['Space'] || keys['ArrowUp'] || keys['KeyW'])) {
-          if (player.dy > 0) {
-            player.dy = player.jumpForce;
-            createParticles(player.x, player.y + player.h);
-          }
-        }
-
-        // Счёт
-        if (player.y < maxY) {
-          const points = Math.floor((maxY - player.y) / 50);
-          score += points;
-          maxY = player.y;
-        }
-
-        // Проигрыш
-        if (player.y > canvas.height) {
-          gameState = 'gameover';
+          break; // Выходим, чтобы не задеть две платформы сразу
         }
       }
 
-      function draw() {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // 4. Проверка проигрыша
+      if (player.y > canvas.height) {
+        gameActive = false;
+        restartBtn.style.display = 'block';
+      }
+    }
 
-        if (gameState === 'playing') {
-          // Платформы
-          for (const p of platforms) {
-            ctx.fillStyle = p.isSpring ? '#9C27B0' : '#4CAF50';
-            ctx.fillRect(p.x, p.y, p.w, p.h);
-          }
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-          // Игрок: картинка ИЛИ красный квадрат
-          if (playerImg && playerImg.complete && playerImg.naturalHeight !== 0) {
-            ctx.drawImage(playerImg, player.x, player.y, player.w, player.h);
-          } else {
-            ctx.fillStyle = 'red';
-            ctx.fillRect(player.x, player.y, player.w, player.h);
-          }
-
-          // Частицы
-          for (let i = particles.length - 1; i >= 0; i--) {
-            const p = particles[i];
-            p.x += p.vx;
-            p.y += p.vy;
-            p.life -= 0.05;
-            ctx.globalAlpha = p.life;
-            ctx.fillStyle = 'white';
-            ctx.fillRect(p.x, p.y, 4, 4);
-            if (p.life <= 0) particles.splice(i, 1);
-          }
-          ctx.globalAlpha = 1.0;
-
-          // Счёт (жёстко в левом верхнем углу)
-          ctx.fillStyle = 'white';
-          ctx.font = '20px Arial';
-          ctx.textAlign = 'left';
-          ctx.fillText('Счёт: ' + score, 10, 30);
-
-          // Прокрутка мира вверх
-          if (player.y < canvas.height / 3) {
-            const diff = canvas.height / 3 - player.y;
-            player.y += diff;
-            maxY += diff;
-            platforms.forEach(p => {
-              p.y += diff;
-              if (p.y > canvas.height) {
-                p.y = platforms[0].y - platformGap;
-                p.x = Math.random() * (canvas.width - platformWidth);
-                p.isSpring = Math.random() < 0.15;
-              }
-            });
-          }
-        } else if (gameState === 'gameover') {
-          ctx.fillStyle = 'rgba(0,0,0,0.7)';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-          ctx.fillStyle = 'white';
-          ctx.font = '30px Arial';
-          ctx.textAlign = 'center';
-          ctx.fillText('Game Over!', canvas.width / 2, canvas.height / 2 - 20);
-          ctx.fillText('Счёт: ' + score, canvas.width / 2, canvas.height / 2 + 20);
-
-          ctx.fillStyle = '#4CAF50';
-          ctx.fillRect(restartBtn.x, restartBtn.y, restartBtn.w, restartBtn.h);
-          ctx.fillStyle = 'white';
-          ctx.font = '18px Arial';
-          ctx.fillText(restartBtn.text, restartBtn.x + 10, restartBtn.y + 25);
+      // Рисуем платформы
+      for (let p of platforms) {
+        // Рисуем платформу со сдвигом мира
+        const drawY = p.y - worldShift;
+        
+        // Рисуем только если платформа видна на экране
+        if (drawY < canvas.height && drawY + p.h > 0) {
+          ctx.fillStyle = '#4ECDC4'; // Зеленый цвет
+          ctx.fillRect(p.x, drawY, p.w, p.h);
+          ctx.strokeStyle = 'white';
+          ctx.strokeRect(p.x, drawY, p.w, p.h);
         }
       }
 
-      // Загрузка картинки
-      const playerImg = new Image();
-      playerImg.src = 'hero.png';
-
-      playerImg.onload = () => {
-        createPlatforms();
-        loop();
-      };
-
-      playerImg.onerror = () => {
-        console.warn('⚠️ Картинка hero.png не найдена. Рисуем красный квадрат вместо героя.');
-        createPlatforms();
-        loop();
-      };
-
-      // Клик/тап по кнопке рестарта
-      canvas.addEventListener('click', (e) => {
-        const rect = canvas.getBoundingClientRect();
-        const mouseX = e.clientX - rect.left;
-        const mouseY = e.clientY - rect.top;
-
-        if (gameState === 'gameover') {
-          if (
-            mouseX >= restartBtn.x &&
-            mouseX <= restartBtn.x + restartBtn.w &&
-            mouseY >= restartBtn.y &&
-            mouseY <= restartBtn.y + restartBtn.h
-          ) {
-            // Полный сброс состояния
-            player.x = canvas.width / 2 - 20;
-            player.y = canvas.height - 100;
-            player.dy = 0;
-            player.dx = 0;
-            maxY = player.y;
-            score = 0;
-            particles.length = 0;
-            createPlatforms();
-            gameState = 'playing';
-          }
-        }
-      });
-
-      function loop() {
-        if (gameState === 'playing') {
-          updatePlayer();
-        }
-        draw();
-        requestAnimationFrame(loop);
+      // Рисуем кота
+      // Кот рисуется всегда на его реальных координатах (player.y)
+      // Но так как мы сдвигали player.y при скролле, нам нужно компенсировать это?
+      // НЕТ. В нашей логике:
+      // 1. Кот летит вверх (y уменьшается).
+      // 2. Когда y становится маленьким, мы добавляем diff к player.y и к worldShift.
+      // 3. Визуально кот остается на месте (примерно в центре), а мир уезжает вниз.
+      // Значит, рисуем кота просто на player.y.
+      
+      if (img.complete && img.naturalHeight !== 0) {
+        ctx.drawImage(img, player.x, player.y, player.w, player.h);
+      } else {
+        // Заглушка, если картинки нет
+        ctx.fillStyle = '#FFA500';
+        ctx.fillRect(player.x, player.y, player.w, player.h);
+        ctx.strokeStyle = 'white';
+        ctx.strokeRect(player.x, player.y, player.w, h);
       }
-    });
+    }
+
+    function loop() {
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    function resetGame() {
+      player.y = canvas.height - 100;
+      player.dy = 0;
+      worldShift = 0;
+      score = 0;
+      scoreEl.innerText = 0;
+      gameActive = true;
+      restartBtn.style.display = 'none';
+      initPlatforms();
+      loop();
+    }
+
+    // Старт
+    img.onload = () => {
+      initPlatforms();
+      loop();
+    };
+    
+    // Если картинки нет, всё равно запускаем (будет оранжевый квадрат)
+    img.onerror = () => {
+      console.warn('hero.png не найден, используем заглушку');
+      initPlatforms();
+      loop();
+    };
+
   </script>
 </body>
 </html>
